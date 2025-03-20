@@ -70,7 +70,7 @@ user_proxy = autogen.UserProxyAgent(
 async def kol_pipeline():
     """KOL数据获取和分析的完整流程"""
     # 1. 获取KOL原始数据
-    kol_raw_data = await fetch_kol_posts(hours=4, limit=100)
+    kol_raw_data = fetch_kol_posts(hours=24, limit=100)['data']
     if kol_raw_data:
         print("KOL原始数据获取成功")
     else:
@@ -78,9 +78,9 @@ async def kol_pipeline():
         kol_raw_data = "KOL原始数据获取失败"
     
     # 2. KOL数据分析
-    kol_analysis = await user_proxy.initiate_chat(
+    kol_analysis_response = user_proxy.initiate_chat(
         KOLMonitorAgent,
-        message=f"""请依据最近4小时KOL发布的内容，分析市场趋势。
+        message=f"""请依据最近24小时KOL发布的前100条内容，分析市场趋势。
         请提供详细的KOL数据分析。
         
         原始数据如下：
@@ -91,7 +91,7 @@ async def kol_pipeline():
     
     return {
         "raw_data": kol_raw_data,
-        "analysis": kol_analysis
+        "analysis": kol_analysis_response.chat_history[-1]['content']
     }
 
 async def trading_pipeline():
@@ -99,29 +99,29 @@ async def trading_pipeline():
     try:
         print("开始执行交易决策流水线...")
         
-        # 1. 同时执行KOL完整流程和市场数据分析
-        kol_task = kol_pipeline()
-        market_task = user_proxy.initiate_chat(
+        # 1. 创建KOL任务
+        kol_task = asyncio.create_task(kol_pipeline())
+        
+        # 2. 直接获取市场分析结果（不需要await）
+        market_result = user_proxy.initiate_chat(
             MarketDataAgent,
             message="""请分析当前链上数据，重点关注：
             1. 交易量异常
             2. 大户活动
             3. DEX流动性变化
             4. Gas费用趋势""",
-            max_turns=1  # 限制对话轮次为1
+            max_turns=1
         )
         
-        # 等待两个完整流程都完成
-        print("等待KOL数据分析和市场数据分析完成...")
-        kol_result, market_analysis = await asyncio.gather(
-            kol_task,
-            market_task
-        )
-        print("KOL数据分析和市场数据分析已完成")
+        # 3. 等待KOL任务完成
+        kol_result = await kol_task
         
-        # 2. 将两份分析结果发送给StrategyAgent进行综合分析
+        # 4. 从ChatResult对象中获取内容
+        market_analysis = market_result.chat_history[-1]['content']
+        
+        # 5. 将两份分析结果发送给StrategyAgent
         strategy_prompt = f"""
-        请基于以下两个数据源制定交易策略：
+        请基于以下三个数据源制定交易策略：
         
         1. KOL数据分析：
         {kol_result['analysis']}
@@ -131,24 +131,19 @@ async def trading_pipeline():
         
         3. 原始KOL数据：
         {kol_result['raw_data']}
-        
-        请提供：
-        1. 详细的交易策略步骤
-        2. 每个决策的具体理由
-        3. 风险评估和控制措施
         """
         
-        strategy_response = await user_proxy.initiate_chat(
+        strategy_response = user_proxy.initiate_chat(
             StrategyAgent,
             message=strategy_prompt,
-            max_turns=1  # 限制对话轮次为1
+            max_turns=1
         )
         
         return {
             "kol_raw_data": kol_result['raw_data'],
             "kol_analysis": kol_result['analysis'],
             "market_analysis": market_analysis,
-            "strategy": strategy_response
+            "strategy": strategy_response.chat_history[-1]['content']
         }
         
     except Exception as e:
@@ -171,11 +166,13 @@ async def main():
         if "error" in result:
             print("执行出错:", result["error"])
             return
-            
+        print("========================================================================================================================================================================================================")
         print("KOL数据分析:", result["kol_analysis"])
+        print("========================================================================================================================================================================================================")
         print("\n市场数据分析:", result["market_analysis"])
+        print("========================================================================================================================================================================================================")
         print("\n交易策略:", result["strategy"])
-        
+        print("========================================================================================================================================================================================================")
         print("\n=== 流程执行完成 ===")
         
     except Exception as e:
@@ -185,11 +182,5 @@ async def main():
 
 
 if __name__ == "__main__":
+    print("开始执行交易决策流程...")
     asyncio.run(main())
-
-
-
-
-
-
-
