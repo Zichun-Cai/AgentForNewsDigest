@@ -1,5 +1,10 @@
 import requests
 from typing import Optional, Dict
+from dotenv import load_dotenv
+import os
+
+# 加载.env文件
+load_dotenv()
 
 def fetch_kol_posts(
     hours: Optional[int] = 4,
@@ -14,8 +19,10 @@ def fetch_kol_posts(
     :param timeout: 请求超时时间（秒）
     :return: 包含推文数据的字典
     """
-    # 基础URL
-    base_url = "http://18.166.51.162:5555/czlfl7q8cb4cfukuy90ukt8/ai/api/twitter/getKolPosts"
+    # 从环境变量获取基础URL
+    base_url = os.getenv("KOL_MONITOR_API_URL")
+    if not base_url:
+        return {"error": "Missing KOL_MONITOR_API_URL in environment variables"}
     
     try:
         # 构造请求参数
